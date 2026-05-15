@@ -24,6 +24,7 @@ for k, v in (("KUMA_URL", KUMA_URL), ("STATUS_SLUG", STATUS_SLUG),
 state_lock = threading.Lock()
 last_tick = {"at": 0, "ok": False, "action": None, "error": None}
 message_id: int | None = None
+last_states: dict[str, int | None] = {}
 
 
 def load_message_id():
@@ -83,12 +84,23 @@ def fetch_state():
 
 
 def render(monitors):
-    all_up = bool(monitors) and all(m["status"] == 1 for m in monitors)
+    down = [m for m in monitors if m["status"] == 0]
+    pending = [m for m in monitors if m["status"] is None]
+    up_count = sum(1 for m in monitors if m["status"] == 1)
+    total = len(monitors)
     stamp = time.strftime("%H:%M", time.gmtime())
-    lines = [
-        f"{'🟢' if all_up else '🔴'} *{TITLE}* — updated {stamp} UTC",
-        "─────────────────────",
-    ]
+
+    if down:
+        names = ", ".join(m["name"] for m in down[:2])
+        more = f" +{len(down) - 2}" if len(down) > 2 else ""
+        header = f"🔴 *{names}*{more} DOWN · {TITLE} · {stamp} UTC"
+    elif pending:
+        names = ", ".join(m["name"] for m in pending[:2])
+        header = f"❓ *{names}* pending · {TITLE} · {stamp} UTC"
+    else:
+        header = f"🟢 *{TITLE}* · {up_count}/{total} up · {stamp} UTC"
+
+    lines = [header, "─────────────────────"]
     if not monitors:
         lines.append("_no monitors found on status page_")
     for m in monitors:
@@ -97,10 +109,42 @@ def render(monitors):
     return "\n".join(lines)
 
 
-def do_tick():
-    global last_tick, message_id
+def detect_transitions(monitors, previous):
+    """Return (newly_down, newly_up) lists of service names."""
+    newly_down, newly_up = [], []
+    for m in monitors:
+        prev = previous.get(m["name"])
+        curr = m["status"]
+        if curr == 0 and prev == 1:
+            newly_down.append(m["name"])
+        elif curr == 1 and prev == 0:
+            newly_up.append(m["name"])
+    return newly_down, newly_up
+
+
+def send_alert(text):
+    """Loud, audible message — for state transitions."""
     try:
-        text = render(fetch_state())
+        tg("sendMessage", chat_id=CHAT_ID, text=text, parse_mode="Markdown")
+    except Exception as e:
+        print(f"[alert] {e}", file=sys.stderr, flush=True)
+
+
+def do_tick():
+    global last_tick, message_id, last_states
+    try:
+        monitors = fetch_state()
+        text = render(monitors)
+
+        if last_states:
+            newly_down, newly_up = detect_transitions(monitors, last_states)
+            for name in newly_down:
+                send_alert(f"🔴 *{name}* went DOWN")
+            for name in newly_up:
+                send_alert(f"🟢 *{name}* is back UP")
+
+        last_states = {m["name"]: m["status"] for m in monitors}
+
         if message_id is not None:
             try:
                 tg("editMessageText",
