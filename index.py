@@ -13,6 +13,7 @@ CHAT_ID       = os.environ.get("CHAT_ID", "")
 POLL_INTERVAL = int(os.environ.get("POLL_INTERVAL", "60"))
 TITLE         = os.environ.get("TITLE", "Status")
 PORT          = int(os.environ.get("PORT", "3000"))
+STATE_FILE    = os.environ.get("STATE_FILE", "")
 
 for k, v in (("KUMA_URL", KUMA_URL), ("STATUS_SLUG", STATUS_SLUG),
              ("BOT_TOKEN", BOT_TOKEN), ("CHAT_ID", CHAT_ID)):
@@ -22,6 +23,30 @@ for k, v in (("KUMA_URL", KUMA_URL), ("STATUS_SLUG", STATUS_SLUG),
 
 state_lock = threading.Lock()
 last_tick = {"at": 0, "ok": False, "action": None, "error": None}
+message_id: int | None = None
+
+
+def load_message_id():
+    if not STATE_FILE:
+        return None
+    try:
+        with open(STATE_FILE) as f:
+            return json.load(f).get("message_id")
+    except (FileNotFoundError, json.JSONDecodeError):
+        return None
+
+
+def save_message_id(mid):
+    if not STATE_FILE:
+        return
+    try:
+        d = os.path.dirname(STATE_FILE)
+        if d:
+            os.makedirs(d, exist_ok=True)
+        with open(STATE_FILE, "w") as f:
+            json.dump({"message_id": mid}, f)
+    except OSError as e:
+        print(f"[warn] cannot persist state: {e}", file=sys.stderr, flush=True)
 
 
 def http_get_json(url, timeout=15):
@@ -72,20 +97,14 @@ def render(monitors):
     return "\n".join(lines)
 
 
-def get_pinned_mid():
-    r = tg("getChat", chat_id=CHAT_ID)
-    pinned = r.get("result", {}).get("pinned_message")
-    return pinned.get("message_id") if pinned else None
-
-
 def do_tick():
-    global last_tick
+    global last_tick, message_id
     try:
         text = render(fetch_state())
-        mid = get_pinned_mid()
-        if mid is not None:
+        if message_id is not None:
             try:
-                tg("editMessageText", chat_id=CHAT_ID, message_id=mid,
+                tg("editMessageText",
+                   chat_id=CHAT_ID, message_id=message_id,
                    text=text, parse_mode="Markdown")
                 with state_lock:
                     last_tick = {"at": int(time.time() * 1000), "ok": True,
@@ -93,10 +112,11 @@ def do_tick():
                 return
             except Exception:
                 pass
-        r = tg("sendMessage", chat_id=CHAT_ID, text=text, parse_mode="Markdown")
-        new_mid = r["result"]["message_id"]
-        tg("pinChatMessage", chat_id=CHAT_ID, message_id=new_mid,
-           disable_notification=True)
+        r = tg("sendMessage",
+               chat_id=CHAT_ID, text=text, parse_mode="Markdown",
+               disable_notification=True)
+        message_id = r["result"]["message_id"]
+        save_message_id(message_id)
         with state_lock:
             last_tick = {"at": int(time.time() * 1000), "ok": True,
                          "action": "created", "error": None}
@@ -139,6 +159,7 @@ class Handler(BaseHTTPRequestHandler):
                 "status": "ok" if healthy else "degraded",
                 "lastTick": snap,
                 "pollIntervalMs": POLL_INTERVAL * 1000,
+                "messageId": message_id,
             })
             self._respond(200 if healthy else 503, body, "application/json")
         else:
@@ -156,6 +177,10 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
+    global message_id
+    message_id = load_message_id()
+    if message_id:
+        print(f"loaded message_id={message_id} from {STATE_FILE}", flush=True)
     threading.Thread(target=tick_loop, daemon=True).start()
     print(f"status-bot listening on :{PORT}, ticking every {POLL_INTERVAL}s",
           flush=True)
