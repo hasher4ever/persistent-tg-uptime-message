@@ -103,7 +103,7 @@ def bar(history):
 
 
 def is_flaky(m):
-    return m["status"] == 1 and any(b == 0 for b in m["history"])
+    return m["status"] == 1 and any(b in (0, 2) for b in m["history"])
 
 
 def sort_key(m):
@@ -120,7 +120,7 @@ def sort_key(m):
 
 def render(monitors):
     down = [m for m in monitors if m["status"] == 0]
-    pending = [m for m in monitors if m["status"] is None]
+    pending = [m for m in monitors if m["status"] in (None, 2)]
     flaky = [m for m in monitors if is_flaky(m)]
     up_count = sum(1 for m in monitors if m["status"] == 1)
     total = len(monitors)
@@ -129,16 +129,17 @@ def render(monitors):
     if down:
         names = ", ".join(m["name"] for m in down[:2])
         more = f" +{len(down) - 2}" if len(down) > 2 else ""
-        header = f"DOWN · *{names}*{more} · {TITLE} · {stamp} UTC"
+        header = f"🔴 DOWN · *{names}*{more} · {TITLE} · {stamp} UTC"
     elif pending:
         names = ", ".join(m["name"] for m in pending[:2])
-        header = f"PEND · *{names}* · {TITLE} · {stamp} UTC"
+        more = f" +{len(pending) - 2}" if len(pending) > 2 else ""
+        header = f"🟡 PEND · *{names}*{more} · {TITLE} · {stamp} UTC"
     elif flaky:
         names = ", ".join(m["name"] for m in flaky[:2])
         more = f" +{len(flaky) - 2}" if len(flaky) > 2 else ""
-        header = f"FLAKY · *{names}*{more} · {TITLE} · {stamp} UTC"
+        header = f"🟡 FLAKY · *{names}*{more} · {TITLE} · {stamp} UTC"
     else:
-        header = f"OK · *{TITLE}* · {up_count}/{total} up · {stamp} UTC"
+        header = f"🟢 *{TITLE}* · {up_count}/{total} up · {stamp} UTC"
 
     lines = [header, "─────────────────────"]
     if not monitors:
