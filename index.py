@@ -14,6 +14,11 @@ POLL_INTERVAL = int(os.environ.get("POLL_INTERVAL", "60"))
 TITLE         = os.environ.get("TITLE", "Status")
 PORT          = int(os.environ.get("PORT", "3000"))
 STATE_FILE    = os.environ.get("STATE_FILE", "")
+ALERT_TTL     = int(os.environ.get("ALERT_TTL", "120"))
+BAR_LEN       = int(os.environ.get("BAR_LEN", "20"))
+
+BEAT_GLYPH = {1: "🟩", 0: "🟥", 2: "🟨", 3: "🟦"}
+BEAT_BLANK = "⬜"
 
 for k, v in (("KUMA_URL", KUMA_URL), ("STATUS_SLUG", STATUS_SLUG),
              ("BOT_TOKEN", BOT_TOKEN), ("CHAT_ID", CHAT_ID)):
@@ -25,6 +30,7 @@ state_lock = threading.Lock()
 last_tick = {"at": 0, "ok": False, "action": None, "error": None}
 message_id: int | None = None
 last_states: dict[str, int | None] = {}
+pending_alerts: list[tuple[int, float]] = []
 
 
 def load_message_id():
@@ -77,15 +83,44 @@ def fetch_state():
         for m in group.get("monitorList", []):
             mid = str(m["id"])
             beats = beat.get("heartbeatList", {}).get(mid, [])
-            status = beats[-1]["status"] if beats else None
+            history = [b.get("status") for b in beats[-BAR_LEN:]]
+            status = history[-1] if history else None
             uptime = beat.get("uptimeList", {}).get(f"{mid}_24", 0) * 100
-            out.append({"name": m["name"], "status": status, "uptime": uptime})
+            out.append({
+                "name": m["name"],
+                "status": status,
+                "uptime": uptime,
+                "history": history,
+            })
     return out
+
+
+def bar(history):
+    cells = [BEAT_GLYPH.get(s, BEAT_BLANK) for s in history]
+    pad = [BEAT_BLANK] * max(0, BAR_LEN - len(cells))
+    return "".join(pad + cells)
+
+
+def is_flaky(m):
+    return m["status"] == 1 and any(b == 0 for b in m["history"])
+
+
+def sort_key(m):
+    s = m["status"]
+    # down → pending/unknown → flaky → clean up
+    if s == 0:
+        return (0, m["name"])
+    if s != 1:
+        return (1, m["name"])
+    if is_flaky(m):
+        return (2, m["name"])
+    return (3, m["name"])
 
 
 def render(monitors):
     down = [m for m in monitors if m["status"] == 0]
     pending = [m for m in monitors if m["status"] is None]
+    flaky = [m for m in monitors if is_flaky(m)]
     up_count = sum(1 for m in monitors if m["status"] == 1)
     total = len(monitors)
     stamp = time.strftime("%H:%M", time.gmtime())
@@ -97,15 +132,19 @@ def render(monitors):
     elif pending:
         names = ", ".join(m["name"] for m in pending[:2])
         header = f"❓ *{names}* pending · {TITLE} · {stamp} UTC"
+    elif flaky:
+        names = ", ".join(m["name"] for m in flaky[:2])
+        more = f" +{len(flaky) - 2}" if len(flaky) > 2 else ""
+        header = f"🟠 *{names}*{more} flaky · {TITLE} · {stamp} UTC"
     else:
         header = f"🟢 *{TITLE}* · {up_count}/{total} up · {stamp} UTC"
 
     lines = [header, "─────────────────────"]
     if not monitors:
         lines.append("_no monitors found on status page_")
-    for m in monitors:
-        icon = "🟢" if m["status"] == 1 else "🔴" if m["status"] == 0 else "❓"
-        lines.append(f"{icon} `{m['name']:<18}` {m['uptime']:.1f}%")
+    for m in sorted(monitors, key=sort_key):
+        lines.append(f"`{m['uptime']:5.1f}%` *{m['name']}*")
+        lines.append(bar(m["history"]))
     return "\n".join(lines)
 
 
@@ -122,16 +161,38 @@ def detect_transitions(monitors, previous):
     return newly_down, newly_up
 
 
-def send_alert(text):
-    """Loud, audible message — for state transitions."""
+def delete_message(mid):
     try:
-        tg("sendMessage", chat_id=CHAT_ID, text=text, parse_mode="Markdown")
+        tg("deleteMessage", chat_id=CHAT_ID, message_id=mid)
+    except Exception:
+        pass
+
+
+def cleanup_expired_alerts():
+    """Delete alerts older than ALERT_TTL; keep the rest."""
+    global pending_alerts
+    now = time.time()
+    remaining = []
+    for mid, sent_at in pending_alerts:
+        if now - sent_at >= ALERT_TTL:
+            delete_message(mid)
+        else:
+            remaining.append((mid, sent_at))
+    pending_alerts = remaining
+
+
+def send_alert(text):
+    """Loud, audible message — for state transitions. Auto-deleted after ALERT_TTL."""
+    try:
+        r = tg("sendMessage", chat_id=CHAT_ID, text=text, parse_mode="Markdown")
+        pending_alerts.append((r["result"]["message_id"], time.time()))
     except Exception as e:
         print(f"[alert] {e}", file=sys.stderr, flush=True)
 
 
 def do_tick():
     global last_tick, message_id, last_states
+    cleanup_expired_alerts()
     try:
         monitors = fetch_state()
         text = render(monitors)
