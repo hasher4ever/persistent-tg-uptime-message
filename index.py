@@ -17,8 +17,9 @@ STATE_FILE    = os.environ.get("STATE_FILE", "")
 ALERT_TTL     = int(os.environ.get("ALERT_TTL", "120"))
 BAR_LEN       = int(os.environ.get("BAR_LEN", "14"))
 
-BEAT_GLYPH = {1: "│", 0: "●", 2: "·", 3: "│"}
+BEAT_GLYPH = {1: "|", 0: "_", 2: "-", 3: "|"}
 BEAT_BLANK = " "
+NBSP = " "
 
 for k, v in (("KUMA_URL", KUMA_URL), ("STATUS_SLUG", STATUS_SLUG),
              ("BOT_TOKEN", BOT_TOKEN), ("CHAT_ID", CHAT_ID)):
@@ -145,7 +146,10 @@ def render(monitors):
         return "\n".join(lines)
     name_w = max(len(m["name"]) for m in monitors)
     for m in sorted(monitors, key=sort_key):
-        row = f"{m['uptime']:5.1f}% {m['name']:<{name_w}}  {bar(m['history'])}"
+        pct = f"{m['uptime']:5.1f}%"
+        if pct.startswith(" "):
+            pct = NBSP + pct[1:]
+        row = f"{pct} {m['name']:<{name_w}}  {bar(m['history'])}"
         lines.append(f"`{row}`")
     return "\n".join(lines)
 
