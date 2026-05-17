@@ -144,12 +144,9 @@ def render(monitors):
         lines.append("_no monitors found on status page_")
         return "\n".join(lines)
     name_w = max(len(m["name"]) for m in monitors)
-    lines.append("```")
     for m in sorted(monitors, key=sort_key):
-        lines.append(
-            f"{m['uptime']:5.1f}% {m['name']:<{name_w}}  {bar(m['history'])}"
-        )
-    lines.append("```")
+        row = f"{m['uptime']:5.1f}% {m['name']:<{name_w}}  {bar(m['history'])}"
+        lines.append(f"`{row}`")
     return "\n".join(lines)
 
 
