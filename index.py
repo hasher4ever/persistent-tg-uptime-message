@@ -17,8 +17,8 @@ STATE_FILE    = os.environ.get("STATE_FILE", "")
 ALERT_TTL     = int(os.environ.get("ALERT_TTL", "120"))
 BAR_LEN       = int(os.environ.get("BAR_LEN", "14"))
 
-BEAT_GLYPH = {1: "🟩", 0: "🟥", 2: "🟨", 3: "🟦"}
-BEAT_BLANK = "⬜"
+BEAT_GLYPH = {1: "│", 0: "●", 2: "·", 3: "│"}
+BEAT_BLANK = " "
 
 for k, v in (("KUMA_URL", KUMA_URL), ("STATUS_SLUG", STATUS_SLUG),
              ("BOT_TOKEN", BOT_TOKEN), ("CHAT_ID", CHAT_ID)):
@@ -142,9 +142,11 @@ def render(monitors):
     lines = [header, "─────────────────────"]
     if not monitors:
         lines.append("_no monitors found on status page_")
+        return "\n".join(lines)
+    name_w = max(len(m["name"]) for m in monitors)
     for m in sorted(monitors, key=sort_key):
-        lines.append(f"`{m['uptime']:5.1f}%` *{m['name']}*")
-        lines.append(bar(m["history"]))
+        row = f"{m['uptime']:5.1f}% {m['name']:<{name_w}}  {bar(m['history'])}"
+        lines.append(f"`{row}`")
     return "\n".join(lines)
 
 
