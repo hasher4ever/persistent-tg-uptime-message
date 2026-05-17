@@ -144,12 +144,11 @@ def render(monitors):
     if not monitors:
         lines.append("_no monitors found on status page_")
         return "\n".join(lines)
-    name_w = max(len(m["name"]) for m in monitors)
     for m in sorted(monitors, key=sort_key):
         pct = f"{m['uptime']:5.1f}%"
         if pct.startswith(" "):
             pct = NBSP + pct[1:]
-        row = f"{pct} {m['name']:<{name_w}}  {bar(m['history'])}"
+        row = f"{pct} {m['name']} {bar(m['history'])}"
         lines.append(f"`{row}`")
     return "\n".join(lines)
 
