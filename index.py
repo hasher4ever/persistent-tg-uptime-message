@@ -128,16 +128,16 @@ def render(monitors):
     if down:
         names = ", ".join(m["name"] for m in down[:2])
         more = f" +{len(down) - 2}" if len(down) > 2 else ""
-        header = f"🔴 *{names}*{more} DOWN · {TITLE} · {stamp} UTC"
+        header = f"DOWN · *{names}*{more} · {TITLE} · {stamp} UTC"
     elif pending:
         names = ", ".join(m["name"] for m in pending[:2])
-        header = f"❓ *{names}* pending · {TITLE} · {stamp} UTC"
+        header = f"PEND · *{names}* · {TITLE} · {stamp} UTC"
     elif flaky:
         names = ", ".join(m["name"] for m in flaky[:2])
         more = f" +{len(flaky) - 2}" if len(flaky) > 2 else ""
-        header = f"🟠 *{names}*{more} flaky · {TITLE} · {stamp} UTC"
+        header = f"FLAKY · *{names}*{more} · {TITLE} · {stamp} UTC"
     else:
-        header = f"🟢 *{TITLE}* · {up_count}/{total} up · {stamp} UTC"
+        header = f"OK · *{TITLE}* · {up_count}/{total} up · {stamp} UTC"
 
     lines = [header, "─────────────────────"]
     if not monitors:
@@ -205,9 +205,9 @@ def do_tick():
         if last_states:
             newly_down, newly_up = detect_transitions(monitors, last_states)
             for name in newly_down:
-                send_alert(f"🔴 *{name}* went DOWN")
+                send_alert(f"DOWN · *{name}*")
             for name in newly_up:
-                send_alert(f"🟢 *{name}* is back UP")
+                send_alert(f"UP · *{name}* recovered")
 
         last_states = {m["name"]: m["status"] for m in monitors}
 
