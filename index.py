@@ -14,7 +14,6 @@ POLL_INTERVAL = int(os.environ.get("POLL_INTERVAL", "60"))
 TITLE         = os.environ.get("TITLE", "Status")
 PORT          = int(os.environ.get("PORT", "3000"))
 STATE_FILE    = os.environ.get("STATE_FILE", "")
-ALERT_TTL     = int(os.environ.get("ALERT_TTL", "120"))
 BAR_LEN       = int(os.environ.get("BAR_LEN", "14"))
 
 BEAT_GLYPH = {1: "|", 0: "_", 2: "-", 3: "|"}
@@ -176,16 +175,11 @@ def delete_message(mid):
 
 
 def cleanup_expired_alerts():
-    """Delete alerts older than ALERT_TTL; keep the rest."""
+    """Delete every prior alert so only the main status message remains."""
     global pending_alerts
-    now = time.time()
-    remaining = []
-    for mid, sent_at in pending_alerts:
-        if now - sent_at >= ALERT_TTL:
-            delete_message(mid)
-        else:
-            remaining.append((mid, sent_at))
-    pending_alerts = remaining
+    for mid, _ in pending_alerts:
+        delete_message(mid)
+    pending_alerts = []
 
 
 def send_alert(text):
