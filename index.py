@@ -15,7 +15,7 @@ TITLE         = os.environ.get("TITLE", "Status")
 PORT          = int(os.environ.get("PORT", "3000"))
 STATE_FILE    = os.environ.get("STATE_FILE", "")
 ALERT_TTL     = int(os.environ.get("ALERT_TTL", "120"))
-BAR_LEN       = int(os.environ.get("BAR_LEN", "20"))
+BAR_LEN       = int(os.environ.get("BAR_LEN", "14"))
 
 BEAT_GLYPH = {1: "🟩", 0: "🟥", 2: "🟨", 3: "🟦"}
 BEAT_BLANK = "⬜"
